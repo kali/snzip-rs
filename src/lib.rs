@@ -1,6 +1,6 @@
 extern crate byteorder;
-extern crate snappy;
 extern crate crc;
+extern crate libc;
 
 use std::io;
 use std::io::prelude::*;
@@ -8,6 +8,46 @@ use std::io::prelude::*;
 use std::fmt;
 
 use byteorder::{ ByteOrder, ReadBytesExt, LittleEndian };
+
+use libc::{c_int, size_t};
+
+#[link(name = "snappy")]
+extern {
+/*
+    fn snappy_compress(input: *const u8,
+                       input_length: size_t,
+                       compressed: *mut u8,
+                       compressed_length: *mut size_t) -> c_int;
+*/
+    fn snappy_uncompress(compressed: *const u8,
+                         compressed_length: size_t,
+                         uncompressed: *mut u8,
+                         uncompressed_length: *mut size_t) -> c_int;
+/*
+    fn snappy_max_compressed_length(source_length: size_t) -> size_t;
+    fn snappy_uncompressed_length(compressed: *const u8,
+                                  compressed_length: size_t,
+                                  result: *mut size_t) -> c_int;
+    fn snappy_validate_compressed_buffer(compressed: *const u8,
+                                         compressed_length: size_t) -> c_int;
+*/
+}
+
+fn uncompress(src: &[u8], dst: &mut Vec<u8>) -> io::Result<()> {
+    unsafe {
+        let srclen = src.len() as size_t;
+        let psrc = src.as_ptr();
+        let pdst = dst.as_mut_ptr();
+        let mut dstlen = dst.capacity() as size_t;
+        let r = snappy_uncompress(psrc, srclen, pdst, &mut dstlen);
+        if r == 0 {
+            dst.set_len(dstlen as usize);
+            Ok( () )
+        } else {
+            Err(io::Error::new(io::ErrorKind::Other, "Error in snappy"))
+        }
+    }
+}
 
 #[derive(Debug)]
 enum ChunkType {
@@ -37,7 +77,7 @@ impl<R : Read> fmt::Debug for Decompressor<R> {
 impl<R : Read> Decompressor<R> {
 
     pub fn new(r:R) -> Decompressor<R> {
-        Decompressor { inner:r, buf: Vec::new(), buf_dec:Vec::new(),
+        Decompressor { inner:r, buf: Vec::new(), buf_dec:Vec::with_capacity(65536),
             chunk:None, check_crc: true, check_stream_identifier: true,
             position: 0
         }
@@ -87,9 +127,7 @@ impl<R : Read> Decompressor<R> {
             }
         } else if kind[0] == 0x00 {
             let check = LittleEndian::read_u32(&self.buf);
-            self.buf_dec = try!(snappy::uncompress(&self.buf[4 ..]).ok_or(
-                io::Error::new(io::ErrorKind::Other, "incomplete page")
-            ));
+            try!(uncompress(&self.buf[4 ..], &mut self.buf_dec));
             if self.check_crc && check != Self::checksum(&self.buf_dec) {
                 return Err(io::Error::new(io::ErrorKind::Other, "invalid crc for snappy page"))
             } else {
@@ -131,9 +169,7 @@ impl<R : Read> Read for Decompressor<R> {
             }
         }
     }
-
 }
-
 
 #[test]
 fn it_works() {
