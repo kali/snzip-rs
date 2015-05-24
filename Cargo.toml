@@ -6,3 +6,4 @@ authors = ["Mathieu Poumeyrol <kali@zoy.org>"]
 [dependencies]
 snappy = "0.2.0"
 byteorder = "*"
+crc = "0.3.1"
