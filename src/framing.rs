@@ -12,6 +12,9 @@ enum ChunkType {
     StreamIdentifier,
     CompressedData,
     RawData,
+    Padding,
+    ReservedUnskippable,
+    ReservedSkippable,
 }
 
 pub struct Decompressor<R : Read> {
@@ -104,8 +107,14 @@ impl<R : Read> Decompressor<R> {
                 self.position = 4;
                 self.chunk = Some(ChunkType::RawData);
             }
-        } else {
-            return Err(io::Error::new(io::ErrorKind::Other, "unknown page type"));
+        } else if kind[0] == 0xfe {
+            self.chunk = Some(ChunkType::Padding);
+        } else if kind[0] >= 0x02 && kind[0] <= 0x7f {
+            self.chunk = Some(ChunkType::ReservedUnskippable);
+            return Err(io::Error::new(io::ErrorKind::Other,
+                "Reserved unskippable chunk. Cowardly bailing out."));
+        } else if kind[0] >= 0x80 && kind[0] <= 0xfd {
+            self.chunk = Some(ChunkType::ReservedSkippable);
         }
         Ok( () )
     }
