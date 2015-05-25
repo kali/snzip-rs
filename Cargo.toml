@@ -2,9 +2,16 @@
 name = "snzip"
 version = "0.1.0"
 authors = ["Mathieu Poumeyrol <kali@zoy.org>"]
+description = "Snappy / Snzip framing format Read/Write"
+documentation = "https://github.com/kali/snzip-rs"
+homepage = "https://github.com/kali/snzip-rs"
+repository = "https://github.com/kali/snzip-rs"
+keywords = ["snappy", "snzip", "framing", "compression", "decompression", "compressor", "decompressor", "flate", "deflate" ]
+license = "WTFPL"
 
 [dependencies]
-# snappy = "0.2.0"
 byteorder = "*"
 crc = "0.3.1"
 libc = "*"
+docopt = "*"
+rustc-serialize = "*"
