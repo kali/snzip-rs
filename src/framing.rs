@@ -5,7 +5,7 @@ use std::io;
 use std::io::prelude::*;
 use std::fmt;
 
-use byteorder::{ ByteOrder, ReadBytesExt, LittleEndian };
+use byteorder::{ ByteOrder, ReadBytesExt, WriteBytesExt, LittleEndian };
 
 #[derive(Debug)]
 enum ChunkType {
@@ -142,3 +142,58 @@ impl<R : Read> Read for Decompressor<R> {
     }
 }
 
+pub struct Compressor<W : Write> {
+    inner:W,
+    header_sent:bool,
+    buf:Vec<u8>,
+    buf_dec:Vec<u8>,
+}
+
+impl<W : Write> Compressor<W> {
+
+    #[allow(dead_code)]
+    pub fn new(w:W) -> Compressor<W> {
+        Compressor { inner:w, buf: Vec::new(),
+            buf_dec: Vec::with_capacity(65536),
+            header_sent:false }
+    }
+
+    fn compress_and_write(&mut self) -> io::Result<()> {
+        if !self.header_sent {
+            try!( self.inner.write_all(
+                &[  0xff, 0x06, 0x00, 0x00, 0x73,
+                    0x4e, 0x61, 0x50, 0x70, 0x59 ]
+            ));
+            self.header_sent = true;
+        }
+        try!(snappy::compress(&self.buf_dec, &mut self.buf));
+        let crc:u32 = crc::crc32::checksum_castagnoli(&self.buf_dec);
+        let sum = ((crc >> 15) | (crc << 17)).wrapping_add(0xa282ead8);
+        try!(self.inner.write_u32::<LittleEndian>(((4+self.buf.len()) as u32) << 8));
+        try!(self.inner.write_u32::<LittleEndian>(sum));
+        self.buf_dec.clear();
+        self.inner.write_all(&self.buf)
+    }
+}
+
+impl<W : Write> Write for Compressor<W> {
+
+    fn write(&mut self, buf:&[u8]) -> io::Result<usize> {
+        let w = try!(self.buf_dec.write(buf));
+        if self.buf_dec.len() == self.buf_dec.capacity() {
+            try!(self.compress_and_write());
+        }
+        Ok(w)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        try!(self.compress_and_write());
+        self.inner.flush()
+    }
+}
+
+impl<W : Write> Drop for Compressor<W> {
+    fn drop(&mut self) {
+        let _ = self.flush();
+    }
+}
